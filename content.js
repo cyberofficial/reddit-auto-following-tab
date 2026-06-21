@@ -4,6 +4,7 @@
  * Features:
  * 1. Automatically selects "Following" tab when visiting reddit.com
  * 2. Intercepts Reddit logo clicks to stay on Following tab instead of navigating to Home
+ * 3. Includes retry logic to handle slow-loading pages
  */
 
 (function() {
@@ -14,40 +15,63 @@
     tabGroup: 'faceplate-tabgroup',
     followingTab: 'faceplate-tabgroup button:nth-child(2)', // Following is the 2nd tab
     redditLogo: '#reddit-logo',
-    header: 'header'
+    header: 'header' // Watch header for SPA navigation
   };
 
+  let isProcessing = false;
+  let lastAttempt = 0;
+  const MIN_INTERVAL = 300; // Minimum ms between attempts
+
   /**
-   * Click the Following tab
+   * Click the Following tab and verify it worked
+   * @returns {boolean} true if successfully selected Following tab
    */
-  function selectFollowingTab() {
+  function selectAndVerifyFollowingTab() {
+    const now = Date.now();
+    if (now - lastAttempt < MIN_INTERVAL) {
+      return false; // Too soon since last attempt
+    }
+    lastAttempt = now;
+
     const followingTab = document.querySelector(SELECTORS.followingTab);
-    if (followingTab) {
-      // Check if already selected (tabindex="0" means selected)
-      if (followingTab.getAttribute('tabindex') === '0') {
-        return true; // Already on Following tab
-      }
-      followingTab.click();
+    if (!followingTab) {
+      return false; // Tab not found yet
+    }
+
+    // If already selected, nothing to do
+    if (followingTab.getAttribute('tabindex') === '0') {
       return true;
     }
-    return false;
+
+    // Click the tab
+    followingTab.click();
+
+    // Small delay to allow UI to update, then verify
+    setTimeout(() => {
+      const stillSelected = followingTab.getAttribute('tabindex') === '0';
+      if (!stillSelected) {
+        // If click didn't work, retry once after a bit longer
+        setTimeout(selectAndVerifyFollowingTab, 400);
+      }
+    }, 100);
+
+    return true; // We attempted the click
   }
 
   /**
    * Set up logo click interception
    */
-  function interceptLogoClick() {
+  function setupLogoInterception() {
     const logoLink = document.querySelector(SELECTORS.redditLogo);
     if (!logoLink) {
       return false;
     }
 
-    // Check if already intercepted
+    // Avoid duplicate listeners
     if (logoLink.dataset.followingTabIntercepted === 'true') {
       return true;
     }
 
-    // Use capture phase to intercept before any other handlers
     logoLink.addEventListener('click', (event) => {
       // Only intercept if we're on the homepage (not a subreddit)
       const isHomepage = window.location.pathname === '/' || window.location.pathname === '';
@@ -55,7 +79,7 @@
       if (isHomepage) {
         event.preventDefault();
         event.stopPropagation();
-        selectFollowingTab();
+        selectAndVerifyFollowingTab();
       }
       // If on a subreddit, allow normal navigation
     }, true); // capture phase
@@ -65,35 +89,38 @@
   }
 
   /**
-   * Run the core logic - always runs on homepage
+   * Main logic to run when conditions are met
    */
   function runLogic() {
-    // Only run on homepage
-    const isHomepage = window.location.pathname === '/' || window.location.pathname === '';
-    if (!isHomepage) return;
+    // Prevent re-entrancy
+    if (isProcessing) return;
+    isProcessing = true;
 
-    selectFollowingTab();
-    interceptLogoClick();
-  }
+    try {
+      // Only run on homepage
+      const isHomepage = window.location.pathname === '/' || window.location.pathname === '';
+      if (!isHomepage) return;
 
-  /**
-   * Check and run logic - can be called multiple times safely
-   */
-  function checkAndRun() {
-    runLogic();
+      // Try to select and verify the Following tab
+      selectAndVerifyFollowingTab();
+      setupLogoInterception();
+    } finally {
+      // Allow next attempt after a short delay
+      setTimeout(() => { isProcessing = false; }, MIN_INTERVAL);
+    }
   }
 
   // Run immediately if DOM is ready
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', checkAndRun);
+    document.addEventListener('DOMContentLoaded', runLogic);
   } else {
-    checkAndRun();
+    runLogic();
   }
 
   // Watch for SPA navigation - single observer for everything
   const observer = new MutationObserver(() => {
     // Re-check on any DOM change - setTimeout ensures we run after DOM settles
-    setTimeout(checkAndRun, 0);
+    setTimeout(runLogic, 0);
   });
 
   observer.observe(document.body, {
@@ -102,6 +129,5 @@
   });
 
   // Also handle popstate (back/forward)
-  window.addEventListener('popstate', checkAndRun);
-
+  window.addEventListener('popstate', runLogic);
 })();
