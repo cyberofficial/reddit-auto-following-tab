@@ -12,8 +12,8 @@ A lightweight Chrome extension that automatically keeps you on Reddit's "Followi
 
 ## Installation
 
-### From Chrome Web Store (once published)
-*Coming soon*
+### From Chrome Web Store
+[![Chrome Web Store](https://img.shields.io/chrome-web-store/v/happkpbdlpdfpfnpnjjniamppbenbnde?label=Chrome%20Web%20Store)](https://chromewebstore.google.com/detail/reddit-auto-following-tab/happkpbdlpdfpfnpnjjniamppbenbnde?authuser=0&hl=en)
 
 ### Developer Mode (for testing)
 
